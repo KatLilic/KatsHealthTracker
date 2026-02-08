@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "Kat's Health Tracker",
+    "slug": "kats-health-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#E91E63"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.kats.healthtracker",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Kat's Health Tracker uses Face ID to protect your health data",
+        "NSHealthShareUsageDescription": "Kat's Health Tracker reads your health data to track your weight loss progress",
+        "NSHealthUpdateUsageDescription": "Kat's Health Tracker writes weight and body measurements to Apple Health"
+      },
+      "entitlements": {
+        "com.apple.developer.healthkit": true,
+        "com.apple.developer.healthkit.background-delivery": true
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#E91E63"
+      },
+      "package": "com.kats.healthtracker"
+    },
+    "plugins": [
+      "expo-sqlite",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Kat's Health Tracker to use Face ID to unlock the app"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "03fed8b1-cdda-48a7-a2fa-1a6c09130082"
+      }
+    }
+  }
+}

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Kat's Health Tracker Icon Generator</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: #333;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      color: white;
+    }
+    .instructions {
+      max-width: 500px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    canvas {
+      border-radius: 22%;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    button {
+      margin-top: 20px;
+      padding: 15px 30px;
+      font-size: 16px;
+      background: #E91E63;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #C2185B;
+    }
+  </style>
+</head>
+<body>
+  <div class="instructions">
+    <h1>💖 Kat's Health Tracker Icon</h1>
+    <p>Click the button to download your app icon. Save it as <strong>icon.png</strong> in the assets folder, replacing the existing one.</p>
+  </div>
+  
+  <canvas id="icon" width="1024" height="1024"></canvas>
+  
+  <button onclick="downloadIcon()">Download Icon (1024x1024)</button>
+  
+  <script>
+    const canvas = document.getElementById('icon');
+    const ctx = canvas.getContext('2d');
+    const size = 1024;
+    
+    // Background gradient
+    const gradient = ctx.createLinearGradient(0, 0, size, size);
+    gradient.addColorStop(0, '#E91E63');
+    gradient.addColorStop(0.5, '#EC407A');
+    gradient.addColorStop(1, '#F48FB1');
+    
+    // Draw rounded square background
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    const radius = size * 0.22;
+    ctx.roundRect(0, 0, size, size, radius);
+    ctx.fill();
+    
+    // Draw heart
+    ctx.save();
+    ctx.translate(size/2, size/2 + 30);
+    const scale = 7;
+    
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.moveTo(0, -25 * scale);
+    ctx.bezierCurveTo(-25 * scale, -75 * scale, -75 * scale, -25 * scale, 0, 50 * scale);
+    ctx.bezierCurveTo(75 * scale, -25 * scale, 25 * scale, -75 * scale, 0, -25 * scale);
+    ctx.fill();
+    
+    // Add subtle shadow inside heart
+    ctx.fillStyle = 'rgba(233, 30, 99, 0.15)';
+    ctx.fill();
+    
+    ctx.restore();
+    
+    // Draw the letter K
+    ctx.fillStyle = '#E91E63';
+    ctx.font = 'bold 380px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('K', size/2, size/2 + 50);
+    
+    // Add shine effect
+    const shine = ctx.createLinearGradient(0, 0, size, size);
+    shine.addColorStop(0, 'rgba(255,255,255,0.2)');
+    shine.addColorStop(0.5, 'rgba(255,255,255,0)');
+    shine.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = shine;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, size, size, radius);
+    ctx.fill();
+    
+    function downloadIcon() {
+      const link = document.createElement('a');
+      link.download = 'icon.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+  </script>
+</body>
+</html>

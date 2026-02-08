@@ -1,0 +1,748 @@
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Dimensions,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { WebView } from 'react-native-webview';
+import { format, parseISO } from 'date-fns';
+import {
+  getMeasurements,
+  getWeightEntries,
+  getUserProfile,
+  MeasurementEntry,
+} from '../database/db';
+import { colors, spacing, borderRadius, shadows } from '../theme/colors';
+
+const { width: screenWidth } = Dimensions.get('window');
+
+interface BodyData {
+  weight: number | null;
+  height: number | null;
+  ribCage: number | null;
+  waist: number | null;
+  lowerBelly: number | null;
+  hips: number | null;
+  leftArm: number | null;
+  rightArm: number | null;
+  leftWrist: number | null;
+  rightWrist: number | null;
+  leftThigh: number | null;
+  rightThigh: number | null;
+  leftCalf: number | null;
+  rightCalf: number | null;
+}
+
+const MEASUREMENT_POINTS: { [key: string]: { label: string; icon: string } } = {
+  ribCage: { label: 'Rib Cage', icon: 'body-outline' },
+  waist: { label: 'Waist', icon: 'resize-outline' },
+  lowerBelly: { label: 'Lower Belly', icon: 'ellipse-outline' },
+  hips: { label: 'Hips / Glutes', icon: 'ellipse-outline' },
+  leftArm: { label: 'Left Arm', icon: 'fitness-outline' },
+  rightArm: { label: 'Right Arm', icon: 'fitness-outline' },
+  leftWrist: { label: 'Left Wrist', icon: 'hand-left-outline' },
+  rightWrist: { label: 'Right Wrist', icon: 'hand-right-outline' },
+  leftThigh: { label: 'Left Thigh', icon: 'walk-outline' },
+  rightThigh: { label: 'Right Thigh', icon: 'walk-outline' },
+  leftCalf: { label: 'Left Calf', icon: 'footsteps-outline' },
+  rightCalf: { label: 'Right Calf', icon: 'footsteps-outline' },
+};
+
+// Three.js HTML for realistic 3D body model with GLTF loader
+const getThreeJsHtml = () => {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      overflow: hidden; 
+      touch-action: none;
+      background: linear-gradient(180deg, #FFF9F9 0%, #FFE8EC 50%, #FFE0E6 100%);
+    }
+    canvas { display: block; }
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #E8A4B8;
+    }
+    #loading .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #FFE0E6;
+      border-top-color: #E8A4B8;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #info {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #8B7D82;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 12px;
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.5s;
+    }
+    #info.visible { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div class="spinner"></div>
+    <div>Loading Model...</div>
+  </div>
+  <div id="info">Drag to rotate • Pinch to zoom</div>
+  
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    
+    let scene, camera, renderer, controls, model;
+    let allBones = {};
+    let rootBone = null;
+    let targetLocalScales = {};
+    let scalingActive = false;
+    
+    function init() {
+      scene = new THREE.Scene();
+      
+      // Camera positioned to see full body
+      camera = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 1.0, 3.8);
+      
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setClearColor(0x000000, 0);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.3;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      document.body.appendChild(renderer.domElement);
+      
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.enablePan = false;
+      controls.minDistance = 2.5;
+      controls.maxDistance = 6;
+      controls.target.set(0, 0.9, 0);
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 1.0;
+      controls.maxPolarAngle = Math.PI * 0.9;
+      controls.minPolarAngle = Math.PI * 0.1;
+      
+      // Soft lighting
+      scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+      
+      const keyLight = new THREE.DirectionalLight(0xfff8f0, 1.0);
+      keyLight.position.set(3, 4, 3);
+      scene.add(keyLight);
+      
+      const fillLight = new THREE.DirectionalLight(0xfff0f5, 0.4);
+      fillLight.position.set(-3, 2, 2);
+      scene.add(fillLight);
+      
+      const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
+      backLight.position.set(0, 2, -4);
+      scene.add(backLight);
+      
+      loadModel();
+      animate();
+    }
+    
+    function loadModel() {
+      const loader = new GLTFLoader();
+      
+      // Light skin material to apply to the model
+      const skinMaterial = new THREE.MeshStandardMaterial({
+        color: 0xF5D5C8,
+        roughness: 0.5,
+        metalness: 0.0,
+      });
+      
+      loader.load(
+        'https://threejs.org/examples/models/gltf/Michelle.glb',
+        (gltf) => {
+          model = gltf.scene;
+          
+          const box = new THREE.Box3().setFromObject(model);
+          const center = box.getCenter(new THREE.Vector3());
+          const size = box.getSize(new THREE.Vector3());
+          
+          // Center and scale
+          model.position.x = -center.x;
+          model.position.y = -box.min.y;
+          model.position.z = -center.z;
+          
+          const scale = 1.7 / size.y;
+          model.scale.setScalar(scale);
+          
+          // Replace all materials with skin tone and discover bones
+          model.traverse((child) => {
+            if (child.isMesh) {
+              child.material = new THREE.MeshStandardMaterial({
+                color: 0xF5D5C8,
+                roughness: 0.5,
+                metalness: 0.0,
+              });
+            }
+            if (child.isBone) {
+              allBones[child.name] = child;
+            }
+          });
+          
+          // Find root bone (bone with no bone parent)
+          model.traverse((child) => {
+            if (child.isBone && !rootBone) {
+              let p = child.parent;
+              let hasBoneParent = false;
+              while (p) {
+                if (p.isBone) { hasBoneParent = true; break; }
+                p = p.parent;
+              }
+              if (!hasBoneParent) rootBone = child;
+            }
+          });
+          
+          scene.add(model);
+          controls.target.set(0, size.y * scale * 0.5, 0);
+          controls.update();
+          
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('info').classList.add('visible');
+          
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'loaded', bones: Object.keys(allBones) }));
+          }
+        },
+        (xhr) => {
+          if (xhr.total > 0) {
+            const pct = Math.round(xhr.loaded / xhr.total * 100);
+            document.querySelector('#loading div:last-child').textContent = pct + '%';
+          }
+        },
+        (error) => {
+          console.error('Model load failed:', error);
+          document.querySelector('#loading div:last-child').textContent = 'Load failed';
+        }
+      );
+    }
+    
+    // Update body proportions based on measurements
+    window.updateBodyFromMeasurements = function(data) {
+      if (!rootBone || !model) return;
+      
+      var ref = {
+        ribCage: 34, waist: 30, lowerBelly: 34, hips: 38,
+        leftArm: 11, rightArm: 11, leftWrist: 6.5, rightWrist: 6.5,
+        leftThigh: 22, rightThigh: 22, leftCalf: 14.5, rightCalf: 14.5
+      };
+      
+      function clamp(v, mn, mx) { return Math.max(mn, Math.min(mx, v)); }
+      function getScale(val, refVal) {
+        if (!val || val <= 0) return 1.0;
+        return clamp(val / refVal, 0.8, 1.3);
+      }
+      
+      var nameVariants = {
+        hips: ['mixamorigHips', 'Hips', 'hips'],
+        spine: ['mixamorigSpine', 'Spine', 'spine'],
+        spine1: ['mixamorigSpine1', 'Spine1', 'spine1'],
+        spine2: ['mixamorigSpine2', 'Spine2', 'spine2'],
+        leftArm: ['mixamorigLeftArm', 'LeftArm', 'leftArm'],
+        rightArm: ['mixamorigRightArm', 'RightArm', 'rightArm'],
+        leftForeArm: ['mixamorigLeftForeArm', 'LeftForeArm', 'leftForeArm'],
+        rightForeArm: ['mixamorigRightForeArm', 'RightForeArm', 'rightForeArm'],
+        leftUpLeg: ['mixamorigLeftUpLeg', 'LeftUpLeg', 'leftUpLeg'],
+        rightUpLeg: ['mixamorigRightUpLeg', 'RightUpLeg', 'rightUpLeg'],
+        leftLeg: ['mixamorigLeftLeg', 'LeftLeg', 'leftLeg'],
+        rightLeg: ['mixamorigRightLeg', 'RightLeg', 'rightLeg']
+      };
+      
+      function findBone(variants) {
+        for (var i = 0; i < variants.length; i++) {
+          if (allBones[variants[i]]) return variants[i];
+        }
+        return null;
+      }
+      
+      var desiredScales = {};
+      var hip = findBone(nameVariants.hips);
+      var sp = findBone(nameVariants.spine);
+      var sp1 = findBone(nameVariants.spine1);
+      var sp2 = findBone(nameVariants.spine2);
+      var la = findBone(nameVariants.leftArm);
+      var ra = findBone(nameVariants.rightArm);
+      var lfa = findBone(nameVariants.leftForeArm);
+      var rfa = findBone(nameVariants.rightForeArm);
+      var lul = findBone(nameVariants.leftUpLeg);
+      var rul = findBone(nameVariants.rightUpLeg);
+      var ll = findBone(nameVariants.leftLeg);
+      var rl = findBone(nameVariants.rightLeg);
+      
+      if (hip) desiredScales[hip] = getScale(data.hips, ref.hips);
+      if (sp) desiredScales[sp] = getScale(data.waist || data.lowerBelly, ref.waist);
+      if (sp1) desiredScales[sp1] = getScale(data.ribCage, ref.ribCage);
+      if (sp2) desiredScales[sp2] = getScale(data.ribCage, ref.ribCage);
+      if (la) desiredScales[la] = getScale(data.leftArm, ref.leftArm);
+      if (ra) desiredScales[ra] = getScale(data.rightArm, ref.rightArm);
+      if (lfa) desiredScales[lfa] = getScale(data.leftWrist, ref.leftWrist);
+      if (rfa) desiredScales[rfa] = getScale(data.rightWrist, ref.rightWrist);
+      if (lul) desiredScales[lul] = getScale(data.leftThigh, ref.leftThigh);
+      if (rul) desiredScales[rul] = getScale(data.rightThigh, ref.rightThigh);
+      if (ll) desiredScales[ll] = getScale(data.leftCalf, ref.leftCalf);
+      if (rl) desiredScales[rl] = getScale(data.rightCalf, ref.rightCalf);
+      
+      targetLocalScales = {};
+      function computeLocal(bone, parentAbsScale) {
+        var targetAbs = desiredScales[bone.name] !== undefined ? desiredScales[bone.name] : 1.0;
+        var localScale = targetAbs / parentAbsScale;
+        targetLocalScales[bone.name] = { x: localScale, z: localScale };
+        for (var i = 0; i < bone.children.length; i++) {
+          if (bone.children[i].isBone) {
+            computeLocal(bone.children[i], targetAbs);
+          }
+        }
+      }
+      computeLocal(rootBone, 1.0);
+      scalingActive = true;
+    };
+    
+    function animate() {
+      requestAnimationFrame(animate);
+      
+      if (scalingActive) {
+        var allDone = true;
+        for (var name in targetLocalScales) {
+          var bone = allBones[name];
+          if (!bone) continue;
+          var tx = targetLocalScales[name].x;
+          var tz = targetLocalScales[name].z;
+          var dx = tx - bone.scale.x;
+          var dz = tz - bone.scale.z;
+          if (Math.abs(dx) > 0.001 || Math.abs(dz) > 0.001) {
+            bone.scale.x += dx * 0.08;
+            bone.scale.z += dz * 0.08;
+            allDone = false;
+          } else {
+            bone.scale.x = tx;
+            bone.scale.z = tz;
+          }
+        }
+        if (allDone) scalingActive = false;
+      }
+      
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+    
+    init();
+  </script>
+</body>
+</html>
+`;
+};
+
+export default function BodyModelScreen() {
+  const [bodyData, setBodyData] = useState<BodyData | null>(null);
+  const [latestMeasurement, setLatestMeasurement] = useState<MeasurementEntry | null>(null);
+  const [previousMeasurement, setPreviousMeasurement] = useState<MeasurementEntry | null>(null);
+  const [isModelLoading, setIsModelLoading] = useState(true);
+  const [selectedMeasurement, setSelectedMeasurement] = useState<string | null>(null);
+  const webViewRef = useRef<WebView>(null);
+  const [modelReady, setModelReady] = useState(false);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [measurements, weights, profile] = await Promise.all([
+        getMeasurements(10),
+        getWeightEntries(1),
+        getUserProfile(),
+      ]);
+
+      const latest = measurements[0] || null;
+      const previous = measurements[1] || null;
+      setLatestMeasurement(latest);
+      setPreviousMeasurement(previous);
+
+      // Convert cm to inches for display (database stores in cm)
+      const cmToInches = (cm: number | null) => cm ? cm / 2.54 : null;
+      
+      setBodyData({
+        weight: weights[0]?.weight_kg ? weights[0].weight_kg * 2.205 : null, // kg to lbs
+        height: profile?.height_cm ? profile.height_cm / 2.54 : null, // cm to inches
+        ribCage: cmToInches(latest?.rib_cage_cm ?? null),
+        waist: cmToInches(latest?.waist_cm ?? null),
+        lowerBelly: cmToInches(latest?.lower_belly_cm ?? null),
+        hips: cmToInches(latest?.hips_cm ?? null),
+        leftArm: cmToInches(latest?.left_arm_cm ?? null),
+        rightArm: cmToInches(latest?.right_arm_cm ?? null),
+        leftWrist: cmToInches(latest?.left_wrist_cm ?? null),
+        rightWrist: cmToInches(latest?.right_wrist_cm ?? null),
+        leftThigh: cmToInches(latest?.left_thigh_cm ?? null),
+        rightThigh: cmToInches(latest?.right_thigh_cm ?? null),
+        leftCalf: cmToInches(latest?.left_calf_cm ?? null),
+        rightCalf: cmToInches(latest?.right_calf_cm ?? null),
+      });
+    } catch (error) {
+      console.error('Failed to load body data:', error);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
+
+  const sendMeasurementsToModel = useCallback(() => {
+    if (webViewRef.current && bodyData && modelReady) {
+      const dataStr = JSON.stringify(bodyData);
+      webViewRef.current.injectJavaScript(
+        'if(window.updateBodyFromMeasurements){window.updateBodyFromMeasurements(' + dataStr + ');}true;'
+      );
+    }
+  }, [bodyData, modelReady]);
+
+  useEffect(() => {
+    sendMeasurementsToModel();
+  }, [sendMeasurementsToModel]);
+
+  const getChange = (key: string): number | null => {
+    if (!latestMeasurement || !previousMeasurement) return null;
+    
+    // Map camelCase display keys to database snake_case keys
+    const keyMap: { [key: string]: keyof MeasurementEntry } = {
+      ribCage: 'rib_cage_cm',
+      waist: 'waist_cm',
+      lowerBelly: 'lower_belly_cm',
+      hips: 'hips_cm',
+      leftArm: 'left_arm_cm',
+      rightArm: 'right_arm_cm',
+      leftWrist: 'left_wrist_cm',
+      rightWrist: 'right_wrist_cm',
+      leftThigh: 'left_thigh_cm',
+      rightThigh: 'right_thigh_cm',
+      leftCalf: 'left_calf_cm',
+      rightCalf: 'right_calf_cm',
+    };
+    
+    const dbKey = keyMap[key];
+    if (!dbKey) return null;
+    
+    const current = latestMeasurement[dbKey] as number | null;
+    const prev = previousMeasurement[dbKey] as number | null;
+    if (current === null || prev === null) return null;
+    // Return change in inches (convert from cm)
+    return (current - prev) / 2.54;
+  };
+
+  const formatValue = (value: number | null | undefined): string => {
+    if (value === null || value === undefined) return '—';
+    return value.toFixed(1);
+  };
+
+  const handleWebViewMessage = (event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'loaded') {
+        setIsModelLoading(false);
+        setModelReady(true);
+      }
+    } catch (e) {
+      // Ignore parse errors
+    }
+  };
+
+  const measurementKeys = Object.keys(MEASUREMENT_POINTS);
+  const hasMeasurements = latestMeasurement !== null;
+
+  return (
+    <View style={styles.container}>
+      {/* Header Stats */}
+      <View style={styles.headerStats}>
+        <View style={styles.stat}>
+          <Text style={styles.statLabel}>Weight</Text>
+          <Text style={styles.statValue}>
+            {bodyData?.weight ? `${bodyData.weight.toFixed(1)} lbs` : '—'}
+          </Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.stat}>
+          <Text style={styles.statLabel}>Height</Text>
+          <Text style={styles.statValue}>
+            {bodyData?.height ? `${Math.floor(bodyData.height / 12)}'${bodyData.height % 12}"` : '—'}
+          </Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.stat}>
+          <Text style={styles.statLabel}>Last Updated</Text>
+          <Text style={styles.statValue}>
+            {latestMeasurement?.date
+              ? format(parseISO(latestMeasurement.date), 'MMM d')
+              : '—'}
+          </Text>
+        </View>
+      </View>
+
+      {/* 3D Model */}
+      <View style={styles.modelContainer}>
+        {isModelLoading && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.loadingText}>Loading 3D model...</Text>
+          </View>
+        )}
+        <WebView
+          ref={webViewRef}
+          style={styles.webView}
+          source={{ html: getThreeJsHtml() }}
+          scrollEnabled={false}
+          onMessage={handleWebViewMessage}
+          onLoadEnd={() => {
+            // Give Three.js time to initialize and load models
+            setTimeout(() => setIsModelLoading(false), 4000);
+          }}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          allowsInlineMediaPlayback={true}
+          mediaPlaybackRequiresUserAction={false}
+          originWhitelist={['*']}
+          mixedContentMode="always"
+        />
+      </View>
+
+      {/* Measurements Grid */}
+      <ScrollView style={styles.measurementsScroll} showsVerticalScrollIndicator={false}>
+        <Text style={styles.sectionTitle}>Body Measurements</Text>
+        
+        {hasMeasurements ? (
+          <View style={styles.measurementsGrid}>
+            {measurementKeys.map((key) => {
+              const point = MEASUREMENT_POINTS[key];
+              const value = bodyData?.[key as keyof BodyData] as number | null;
+              const change = getChange(key);
+              const isSelected = selectedMeasurement === key;
+              
+              return (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.measurementCard, isSelected && styles.measurementCardSelected]}
+                  onPress={() => setSelectedMeasurement(isSelected ? null : key)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={point.icon as any}
+                    size={18}
+                    color={isSelected ? colors.primary : colors.textSecondary}
+                    style={styles.measurementIcon}
+                  />
+                  <Text style={[styles.measurementLabel, isSelected && styles.measurementLabelSelected]}>
+                    {point.label}
+                  </Text>
+                  <Text style={styles.measurementValue}>
+                    {formatValue(value)}
+                    {value !== null && <Text style={styles.measurementUnit}>"</Text>}
+                  </Text>
+                  {change !== null && (
+                    <Text style={[
+                      styles.measurementChange,
+                      change < 0 ? styles.changePositive : styles.changeNeutral
+                    ]}>
+                      {change < 0 ? '↓' : change > 0 ? '↑' : '→'} {Math.abs(change).toFixed(1)}"
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons name="body-outline" size={64} color={colors.textMuted} />
+            <Text style={styles.emptyText}>No measurements yet</Text>
+            <Text style={styles.emptySubtext}>
+              Add your first body measurements in the Measure tab to see them here
+            </Text>
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+    paddingTop: 50,
+  },
+  headerStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    backgroundColor: colors.surface,
+    marginHorizontal: spacing.md,
+    borderRadius: borderRadius.lg,
+    ...shadows.sm,
+  },
+  stat: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statLabel: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  statDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: colors.border,
+  },
+  modelContainer: {
+    height: 340,
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    borderRadius: borderRadius.xl,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    ...shadows.md,
+  },
+  webView: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  loadingText: {
+    marginTop: spacing.sm,
+    color: colors.textSecondary,
+    fontSize: 14,
+  },
+  measurementsScroll: {
+    flex: 1,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.md,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: spacing.md,
+  },
+  measurementsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingBottom: spacing.xl,
+  },
+  measurementCard: {
+    width: '48%',
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    ...shadows.sm,
+  },
+  measurementCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight + '30',
+  },
+  measurementIcon: {
+    marginBottom: spacing.xs,
+  },
+  measurementLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  measurementLabelSelected: {
+    color: colors.primaryDark,
+  },
+  measurementValue: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  measurementUnit: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: colors.textSecondary,
+  },
+  measurementChange: {
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  changePositive: {
+    color: colors.success,
+  },
+  changeNeutral: {
+    color: colors.textMuted,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: spacing.xxl,
+  },
+  emptyText: {
+    fontSize: 18,
+    color: colors.textSecondary,
+    marginTop: spacing.md,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+    paddingHorizontal: spacing.xl,
+  },
+});
