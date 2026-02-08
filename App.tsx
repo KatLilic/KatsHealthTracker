@@ -81,7 +81,12 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
 
   const handleLogOption = (screen: string) => {
     hideLogModal();
-    setTimeout(() => navigation.navigate(screen), 100);
+    setTimeout(() => navigation.navigate(screen, { openModal: true }), 100);
+  };
+
+  const handleLogOptionWithParams = (screen: string, params: any) => {
+    hideLogModal();
+    setTimeout(() => navigation.navigate(screen, { ...params }), 100);
   };
 
   return (
@@ -198,6 +203,24 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={themeColors.primary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[tabStyles.logOption, { backgroundColor: '#FFF3E0' }]}
+              onPress={() => handleLogOptionWithParams('Weight', { openProteinModal: true })}
+            >
+              <View style={[tabStyles.logOptionIcon, { backgroundColor: '#FF9800' }]}>
+                <Ionicons name="nutrition-outline" size={24} color="#fff" />
+              </View>
+              <View style={tabStyles.logOptionText}>
+                <Text style={[tabStyles.logOptionTitle, { color: isDarkMode ? themeColors.text : colors.text }]}>
+                  Protein
+                </Text>
+                <Text style={[tabStyles.logOptionDesc, { color: isDarkMode ? themeColors.textSecondary : colors.textSecondary }]}>
+                  Log daily protein intake
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#FF9800" />
             </TouchableOpacity>
 
             <TouchableOpacity 

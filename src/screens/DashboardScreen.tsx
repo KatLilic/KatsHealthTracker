@@ -17,6 +17,7 @@ import {
   getMeasurements,
   getZepboundStats,
   getUserProfile,
+  getAverageProtein,
 } from '../database/db';
 import { useTheme } from '../theme/ThemeContext';
 import { colors, spacing, borderRadius, shadows } from '../theme/colors';
@@ -43,6 +44,8 @@ interface DashboardStats {
   loggingStreak: number;
   totalEntries: number;
   userName: string | null;
+  avgProtein7Day: number;
+  avgProtein30Day: number;
 }
 
 export default function DashboardScreen() {
@@ -69,6 +72,8 @@ export default function DashboardScreen() {
     loggingStreak: 0,
     totalEntries: 0,
     userName: null,
+    avgProtein7Day: 0,
+    avgProtein30Day: 0,
   });
   const [motivationTip, setMotivationTip] = useState('');
 
@@ -128,6 +133,8 @@ export default function DashboardScreen() {
       const weights = await getWeightEntries();
       const zepStats = await getZepboundStats();
       const measurements = await getMeasurements();
+      const avgProtein7Day = await getAverageProtein(7);
+      const avgProtein30Day = await getAverageProtein(30);
 
       const currentWeight = weights[0]?.weight_kg || null;
       const startingWeight = weights.length > 0 ? weights[weights.length - 1].weight_kg : null;
@@ -249,6 +256,8 @@ export default function DashboardScreen() {
         loggingStreak,
         totalEntries: weights.length,
         userName: profile?.name || null,
+        avgProtein7Day,
+        avgProtein30Day,
       };
 
       setStats(newStats);
@@ -511,6 +520,18 @@ export default function DashboardScreen() {
               {stats.totalEntries}
             </Text>
             <Text style={[styles.detailedStatSubtext, { color: themeColors.textSecondary }]}>weight logs</Text>
+          </View>
+
+          {/* Protein Average */}
+          <View style={[styles.detailedStatCard, { borderLeftColor: '#FF9800', backgroundColor: themeColors.surface }]}>
+            <View style={styles.detailedStatHeader}>
+              <Ionicons name="nutrition" size={16} color="#FF9800" />
+              <Text style={[styles.detailedStatLabel, { color: themeColors.textSecondary }]}>Protein</Text>
+            </View>
+            <Text style={[styles.detailedStatValue, { color: '#FF9800' }]}>
+              {stats.avgProtein7Day > 0 ? `${stats.avgProtein7Day.toFixed(0)}g` : '--'}
+            </Text>
+            <Text style={[styles.detailedStatSubtext, { color: themeColors.textSecondary }]}>avg/day (7d)</Text>
           </View>
         </View>
       </Animated.View>

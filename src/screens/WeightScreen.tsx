@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import {
   Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useRoute } from '@react-navigation/native';
 import { LineChart } from 'react-native-chart-kit';
 import { format, parseISO } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -25,15 +25,28 @@ import {
   deleteWeightEntry,
   getWeightEntriesForChart,
   WeightEntry,
+  upsertDailyNutrition,
 } from '../database/db';
 
 const screenWidth = Dimensions.get('window').width;
 
 export default function WeightScreen() {
+  const route = useRoute<any>();
   const [entries, setEntries] = useState<WeightEntry[]>([]);
   const [chartData, setChartData] = useState<number[]>([]);
   const [chartLabels, setChartLabels] = useState<string[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showProteinModal, setShowProteinModal] = useState(false);
+
+  // Auto-open modal if navigated from quick log button
+  useEffect(() => {
+    if (route.params?.openModal) {
+      setShowAddModal(true);
+    }
+    if (route.params?.openProteinModal) {
+      setShowProteinModal(true);
+    }
+  }, [route.params?.openModal, route.params?.openProteinModal]);
   const [isLbs, setIsLbs] = useState(true);
   const [weightInput, setWeightInput] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -99,6 +112,30 @@ export default function WeightScreen() {
     } catch (error) {
       console.error('Failed to add weight:', error);
       Alert.alert('Error', 'Failed to save weight entry');
+    }
+  };
+
+  const handleAddProtein = async () => {
+    if (!proteinInput) {
+      Alert.alert('Error', 'Please enter protein amount');
+      return;
+    }
+
+    const protein = parseFloat(proteinInput);
+    if (isNaN(protein) || protein <= 0) {
+      Alert.alert('Error', 'Please enter a valid protein amount');
+      return;
+    }
+
+    try {
+      await upsertDailyNutrition(format(selectedDate, 'yyyy-MM-dd'), protein);
+      setShowProteinModal(false);
+      setProteinInput('');
+      setSelectedDate(new Date());
+      Alert.alert('Success', `Logged ${protein}g protein for ${format(selectedDate, 'MMM d, yyyy')}`);
+    } catch (error) {
+      console.error('Failed to add protein:', error);
+      Alert.alert('Error', 'Failed to save protein entry');
     }
   };
 
@@ -248,46 +285,35 @@ export default function WeightScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.modalOverlay}
         >
-          <View style={styles.modalContent}>
-            <ScrollView 
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingBottom: 20 }}
-              showsVerticalScrollIndicator={true}
-            >
-            <Text style={styles.modalTitle}>Log Weight & Protein</Text>
+          <View style={[styles.modalContent, { maxHeight: '60%' }]}>
+            <Text style={styles.modalTitle}>Log Weight</Text>
 
-            <Text style={styles.inputLabel}>Weight</Text>
-            <View style={styles.inputRow}>
-              <TextInput
-                style={styles.weightInput}
-                value={weightInput}
-                onChangeText={setWeightInput}
-                placeholder="Enter weight"
-                keyboardType="decimal-pad"
-              />
-              <Text style={styles.unitLabel}>{isLbs ? 'lbs' : 'kg'}</Text>
+            {/* Weight Input */}
+            <View style={{ backgroundColor: '#f0f0f0', padding: 16, borderRadius: 12, marginBottom: 16 }}>
+              <Text style={[styles.inputLabel, { marginBottom: 8 }]}>Weight</Text>
+              <View style={styles.inputRow}>
+                <TextInput
+                  style={[styles.weightInput, { marginBottom: 0 }]}
+                  value={weightInput}
+                  onChangeText={setWeightInput}
+                  placeholder="Enter weight"
+                  keyboardType="decimal-pad"
+                  autoFocus
+                />
+                <Text style={styles.unitLabel}>{isLbs ? 'lbs' : 'kg'}</Text>
+              </View>
             </View>
 
-            <Text style={styles.inputLabel}>Date</Text>
-            <DateTimePicker
-              value={selectedDate}
-              mode="date"
-              display="default"
-              onChange={(event, date) => date && setSelectedDate(date)}
-              style={styles.datePicker}
-              maximumDate={new Date()}
-            />
-
-            <Text style={styles.inputLabel}>Daily Protein Intake</Text>
-            <View style={styles.inputRow}>
-              <TextInput
-                style={styles.weightInput}
-                value={proteinInput}
-                onChangeText={setProteinInput}
-                placeholder="Enter grams"
-                keyboardType="decimal-pad"
+            {/* Date */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={[styles.inputLabel, { marginBottom: 0, marginRight: 12 }]}>Date:</Text>
+              <DateTimePicker
+                value={selectedDate}
+                mode="date"
+                display="compact"
+                onChange={(event, date) => date && setSelectedDate(date)}
+                maximumDate={new Date()}
               />
-              <Text style={styles.unitLabel}>g</Text>
             </View>
 
             <TextInput
@@ -309,7 +335,57 @@ export default function WeightScreen() {
                 <Text style={styles.saveButtonText}>Save</Text>
               </TouchableOpacity>
             </View>
-            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Protein Only Modal */}
+      <Modal visible={showProteinModal} animationType="slide" transparent>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={[styles.modalContent, { maxHeight: '50%' }]}>
+            <Text style={[styles.modalTitle, { color: '#E65100' }]}>🥩 Log Protein</Text>
+
+            <View style={{ backgroundColor: '#FFF3E0', padding: 16, borderRadius: 12, marginBottom: 16, borderWidth: 2, borderColor: '#FF9800' }}>
+              <Text style={[styles.inputLabel, { marginBottom: 8, color: '#E65100', fontWeight: 'bold' }]}>Daily Protein Intake</Text>
+              <View style={styles.inputRow}>
+                <TextInput
+                  style={[styles.weightInput, { marginBottom: 0, borderColor: '#FF9800' }]}
+                  value={proteinInput}
+                  onChangeText={setProteinInput}
+                  placeholder="Enter grams (e.g. 80)"
+                  keyboardType="decimal-pad"
+                  placeholderTextColor="#999"
+                  autoFocus
+                />
+                <Text style={[styles.unitLabel, { color: '#E65100' }]}>g</Text>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={[styles.inputLabel, { marginBottom: 0, marginRight: 12 }]}>Date:</Text>
+              <DateTimePicker
+                value={selectedDate}
+                mode="date"
+                display="compact"
+                onChange={(event, date) => date && setSelectedDate(date)}
+                maximumDate={new Date()}
+              />
+            </View>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => { setShowProteinModal(false); setProteinInput(''); }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.saveButton, { backgroundColor: '#FF9800' }]} onPress={handleAddProtein}>
+                <Text style={styles.saveButtonText}>Save Protein</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
