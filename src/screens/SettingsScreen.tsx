@@ -26,6 +26,7 @@ import {
   syncWithHealthKit,
   getLastSyncDate,
 } from '../services/healthKitService';
+import { syncAll, getLastSyncTime } from '../aws/cloudSync';
 import { useBiometric } from '../auth/BiometricContext';
 
 const CHART_RANGE_OPTIONS = [
@@ -71,6 +72,10 @@ export default function SettingsScreen() {
   const [showClearDataModal, setShowClearDataModal] = useState(false);
   const [clearDataConfirmText, setClearDataConfirmText] = useState('');
   const [isClearing, setIsClearing] = useState(false);
+
+  // Cloud sync state
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
 
   const handleClearAllData = async () => {
     if (clearDataConfirmText !== 'DELETE ALL') {
@@ -1450,7 +1455,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.sm,
-    backgroundColor: colors.cardBackground,
+    backgroundColor: colors.background,
     borderRadius: borderRadius.sm,
     marginBottom: spacing.xs,
   },
@@ -1634,19 +1639,6 @@ const styles = StyleSheet.create({
   saveCustomButtonText: {
     color: '#fff',
     fontSize: 15,
-    fontWeight: '600',
-  },
-  syncButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
-    gap: 6,
-  },
-  syncButtonText: {
-    color: '#fff',
-    fontSize: 13,
     fontWeight: '600',
   },
   infoBox: {
